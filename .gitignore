@@ -1,0 +1,9 @@
+﻿rag/
+*.gguf
+*.env
+data/
+chroma_db/
+models/
+rag_audit.log
+__pycache__/
+*.pyc

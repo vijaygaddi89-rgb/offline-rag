@@ -1,0 +1,6 @@
+llama-cpp-python
+chromadb
+streamlit
+sentence-transformers
+pymupdf
+cryptography
