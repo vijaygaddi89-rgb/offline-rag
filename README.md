@@ -23,7 +23,8 @@ pip install -r requirements.txt
 
 streamlit run app.py
 ```
-![Offline Demo](screenshots/demo.png)
+![Offline Demo](screenshots/demo.png)<img width="990" height="1079" alt="Screenshot 2026-04-03 131212" src="https://github.com/user-attachments/assets/6a6a87df-b809-45c5-97e7-8e0cde17b9c3" />
+
 
 ## Key Features
 - ✅ Zero internet required after setup
