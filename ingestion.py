@@ -1,10 +1,10 @@
 import os
-import fitz  # PyMuPDF
+import fitz
 from cryptography.fernet import Fernet
 from sentence_transformers import SentenceTransformer
 import chromadb
 
-# ── 1. Load the embedding model once (not every function call) ──
+# ── 1. Load embedding model once ──
 print("Loading embedding model...")
 embedder = SentenceTransformer('all-MiniLM-L6-v2')
 print("Embedding model loaded!")
@@ -14,28 +14,39 @@ chroma_client = chromadb.PersistentClient(path="./chroma_db")
 collection = chroma_client.get_or_create_collection(name="documents")
 
 
-# ── 3. Extract text from PDF ──
-def extract_text(file_path: str) -> str:
+# ── 3. Extract text page by page ──
+def extract_text_by_page(file_path: str) -> list:
     doc = fitz.open(file_path)
-    full_text = ""
-    for page in doc:
-        full_text += page.get_text()
+    pages = []
+    for page_num, page in enumerate(doc, start=1):
+        text = page.get_text()
+        if text.strip():
+            pages.append({
+                "text": text,
+                "page": page_num
+            })
     doc.close()
-    print(f"Extracted {len(full_text)} characters from {file_path}")
-    return full_text
+    print(f"Extracted {len(pages)} pages from {file_path}")
+    return pages
 
 
-# ── 4. Split text into overlapping chunks ──
-def chunk_text(text: str, chunk_size: int = 512, overlap: int = 50) -> list:
+# ── 4. Chunk each page separately ──
+def chunk_pages(pages: list, chunk_size: int = 512, overlap: int = 50) -> list:
     chunks = []
-    start = 0
-    while start < len(text):
-        end = start + chunk_size
-        chunk = text[start:end]
-        if chunk.strip():  # skip empty chunks
-            chunks.append(chunk)
-        start = end - overlap  # move back by overlap amount
-    print(f"Created {len(chunks)} chunks")
+    for page_data in pages:
+        text = page_data["text"]
+        page_num = page_data["page"]
+        start = 0
+        while start < len(text):
+            end = start + chunk_size
+            chunk = text[start:end]
+            if chunk.strip():
+                chunks.append({
+                    "text": chunk,
+                    "page": page_num
+                })
+            start = end - overlap
+    print(f"Created {len(chunks)} chunks across {len(pages)} pages")
     return chunks
 
 
@@ -62,43 +73,46 @@ def encrypt_file(file_path: str) -> str:
     return encrypted_path
 
 
-# ── 6. Embed chunks and store in ChromaDB ──
+# ── 6. Embed chunks and store with page metadata ──
 def embed_and_store(chunks: list, doc_name: str):
     print(f"Embedding {len(chunks)} chunks...")
-    embeddings = embedder.encode(chunks).tolist()
 
+    texts = [c["text"] for c in chunks]
+    embeddings = embedder.encode(texts).tolist()
     ids = [f"{doc_name}_chunk_{i}" for i in range(len(chunks))]
+    metadatas = [{"page": c["page"], "doc": doc_name} for c in chunks]
 
     collection.add(
-        documents=chunks,
+        documents=texts,
         embeddings=embeddings,
-        ids=ids
+        ids=ids,
+        metadatas=metadatas
     )
-    print(f"Stored {len(chunks)} chunks in ChromaDB!")
+    print(f"Stored {len(chunks)} chunks with page numbers in ChromaDB!")
 
 
-# ── 7. Master function — runs the full pipeline ──
+# ── 7. Master function ──
 def ingest_document(file_path: str):
     print(f"\n--- Starting ingestion for: {file_path} ---")
 
-    # Step 1: Extract text
-    text = extract_text(file_path)
+    # Step 1: Extract text page by page
+    pages = extract_text_by_page(file_path)
 
-    # Step 2: Chunk it
-    chunks = chunk_text(text)
+    # Step 2: Chunk pages
+    chunks = chunk_pages(pages)
 
     # Step 3: Encrypt original file
     encrypt_file(file_path)
 
-    # Step 4: Embed and store chunks
+    # Step 4: Embed and store with page metadata
     doc_name = os.path.basename(file_path).replace(" ", "_")
     embed_and_store(chunks, doc_name)
 
     print(f"\n✓ Ingestion complete for {file_path}")
-    print(f"✓ {len(chunks)} chunks stored in ChromaDB")
+    print(f"✓ {len(chunks)} chunks stored with page numbers")
     print(f"✓ Original file encrypted on disk")
 
 
-# ── 8. Test it ──
+# ── 8. Test ──
 if __name__ == "__main__":
     ingest_document("test.pdf")

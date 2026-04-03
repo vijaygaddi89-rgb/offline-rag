@@ -30,33 +30,42 @@ def embed_query(query: str) -> list:
     return vector
 
 
-# ── 5. Search ChromaDB for top 4 relevant chunks ──
+# ── 5. Search ChromaDB — returns chunks with page numbers ──
 def retrieve_chunks(query: str, top_k: int = 4) -> list:
     query_vector = embed_query(query)
 
     results = collection.query(
         query_embeddings=[query_vector],
-        n_results=min(top_k, collection.count())
+        n_results=min(top_k, collection.count()),
+        include=["documents", "metadatas"]
     )
 
-    chunks = results['documents'][0]
+    chunks = []
+    for i, doc in enumerate(results['documents'][0]):
+        page_num = results['metadatas'][0][i].get('page', '?')
+        chunks.append({
+            "text": doc,
+            "page": page_num
+        })
+
     print(f"Retrieved {len(chunks)} chunks from ChromaDB")
     return chunks
 
 
-# ── 6. Format chunks with citation labels ──
+# ── 6. Format context with page numbers ──
 def format_context(chunks: list) -> str:
     context = ""
     for i, chunk in enumerate(chunks):
-        context += f"[Chunk {i+1}]:\n{chunk}\n\n"
+        context += f"[Source: Page {chunk['page']}]:\n{chunk['text']}\n\n"
     return context.strip()
 
 
-# ── 7. Build the prompt ──
+# ── 7. Build prompt — citations at the end ──
 def build_prompt(context: str, query: str) -> str:
     prompt = f"""You are a helpful assistant. Answer the user's question using ONLY the provided context below.
 If the answer is not in the context, say "I could not find this information in the provided document."
-Always mention which [Chunk X] your answer came from.
+Write your answer in clear complete sentences first.
+At the very end of your answer on a new line add: "Sources: Page X" listing which pages you used.
 
 CONTEXT:
 {context}
@@ -85,7 +94,7 @@ def answer_question(query: str) -> str:
     # Step 1: retrieve relevant chunks
     chunks = retrieve_chunks(query)
 
-    # Step 2: format context with citations
+    # Step 2: format context with page numbers
     context = format_context(chunks)
 
     # Step 3: build prompt
@@ -96,7 +105,13 @@ def answer_question(query: str) -> str:
     output = llm(prompt, max_tokens=512, stop=["QUESTION:", "CONTEXT:"])
     response = output['choices'][0]['text'].strip()
 
-    # Step 5: log to audit
+    # Step 5: append page sources at end if model missed them
+    pages_used = sorted(set([c['page'] for c in chunks]))
+    if "Sources:" not in response:
+        pages_str = ", ".join([f"Page {p}" for p in pages_used])
+        response += f"\n\n📄 Sources: {pages_str}"
+
+    # Step 6: log to audit
     latency = time.time() - start_time
     log_audit(query, response, latency)
 
@@ -104,7 +119,7 @@ def answer_question(query: str) -> str:
     return response
 
 
-# ── 10. Test it ──
+# ── 10. Test ──
 if __name__ == "__main__":
     questions = [
         "What is the penalty for late payment?",
