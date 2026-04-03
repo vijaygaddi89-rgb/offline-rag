@@ -23,6 +23,7 @@ pip install -r requirements.txt
 
 streamlit run app.py
 ```
+![Offline Demo](screenshots/demo.png)
 
 ## Key Features
 - ✅ Zero internet required after setup
